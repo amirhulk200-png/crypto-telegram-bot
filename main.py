@@ -1,6 +1,4 @@
-threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import requests
+requests
 from google import genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
