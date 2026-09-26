@@ -1,113 +1,123 @@
 import os
+import asyncio
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
+from google import genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from google import genai
 
 # ==========================================
-# تنظیمات کلیدهای API (API Keys)
+# 1. HTTP HEALTH CHECK SERVER FOR RENDER
 # ==========================================
-TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"  # توکن ربات تلگرام خود را اینجا قرار دهید
-GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"          # کلید جمینای خود را اینجا قرار دهید
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Crypto Telegram Bot is Active and Running 24/7!")
 
-# مقداردهی اولیه به کلاینت Gemini
-client_gemini = genai.Client(api_key=GEMINI_API_KEY)
+def run_health_check_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    server.serve_forever()
+
+# اجرای سرور وب در پس‌زمینه برای زنده نگه داشتن Render Web Service
+threading.Thread(target=run_health_check_server, daemon=True).start()
 
 # ==========================================
-# تابع دریافت قیمت و اطلاعات بازار از بایننس
+# 2. CONFIGURATION & API KEYS
 # ==========================================
-def get_crypto_data(symbol: str) -> str:
-    """دریافت قیمت لحظه‌ای و تغییرات ۲۴ ساعته از بایننس"""
-    url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}USDT"
+TELEGRAM_BOT_TOKEN = "8156174175:AAGqZ-oY3vGzXp7K6R8y1I90L5U0_m9V_04"  # توکن ربات تلگرام
+GEMINI_API_KEY = "AIzaSy..."  # کلید API جمینای خود را در صورت نیاز جایگزین کنید
+
+# تنظیم کلاینت گوگل جمینای
+client = genai.Client(api_key=GEMINI_API_KEY)
+
+# ==========================================
+# 3. HELPER FUNCTIONS (BINANCE & GEMINI AI)
+# ==========================================
+def get_crypto_price(symbol="BTCUSDT"):
+    """دریافت قیمت لحظه‌ای از بایننس"""
     try:
+        url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
         response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            price = round(float(data.get("lastPrice", 0)), 2)
-            change = round(float(data.get("priceChangePercent", 0)), 2)
-            high = round(float(data.get("highPrice", 0)), 2)
-            low = round(float(data.get("lowPrice", 0)), 2)
-            volume = round(float(data.get("volume", 0)), 2)
-            
-            return (
-                f"📊 اطلاعات بازار لحظه‌ای ({symbol}/USDT):\n"
-                f"🔹 قیمت فعلی: ${price:,}\n"
-                f"📈 تغییرات ۲۴ ساعته: {change}%\n"
-                f"🔝 بالاترین قیمت ۲۴ ساعت: ${high:,}\n"
-                f"🔻 پایین‌ترین قیمت ۲۴ ساعت: ${low:,}\n"
-                f"🔄 حجم معاملات: {volume:,}\n"
-            )
-        else:
-            return "⚠️ خطایی در دریافت داده‌های بازار رخ داد."
+        data = response.json()
+        price = float(data['lastPrice'])
+        change = float(data['priceChangePercent'])
+        high = float(data['highPrice'])
+        low = float(data['lowPrice'])
+        return price, change, high, low
     except Exception as e:
-        return f"⚠️ خطای ارتباط با بازار: {e}"
+        print(f"Error fetching price for {symbol}: {e}")
+        return None, None, None, None
 
-# ==========================================
-# تابع تحلیل هوش مصنوعی (Gemini)
-# ==========================================
-def analyze_with_gemini(symbol: str, market_data: str) -> str:
-    """ارسال داده‌های بازار به Gemini و دریافت تحلیل و سیگنال"""
+def analyze_crypto_with_gemini(coin_name, price, change, high, low):
+    """تحلیل هوشمند بازار با موتور Gemini AI"""
     prompt = f"""
-    شما یک تحلیل‌گر و تریدر حرفه‌ای بازار کریپتوکارنسی هستید.
-    اطلاعات زیر مربوط به ارز {symbol} است:
-    
-    {market_data}
-    
-    لطفاً بر اساس این داده‌ها و شرایط کلی بازار:
-    ۱. یک تحلیل فنی کوتاه و خلاصه بفرمایید.
-    ۲. وضعیت کلی (صعودی/نزولی/رنج) را مشخص کنید.
-    ۳. سطوح کلیدی حمایت و مقاومت پیشنهادی را ذکر کنید.
-    ۴. پیشنهاد سناریوی معاملاتی (خرید/فروش/انتظار) همراه با حد سود و حد زیان مدیریت ریسک ارائه دهید.
-    
-    پاسخ را با ایموجی‌های مناسب، منظم و خوانا به زبان فارسی بنویسید.
+    تست تحلیلگری حرفه‌ای کریپتوکارنسی:
+    ارز: {coin_name}
+    قیمت لحظه‌ای: ${price:,.2f}
+    تغییرات ۲۴ ساعت گذشته: {change:.2f}%
+    سقف ۲۴ ساعت: ${high:,.2f}
+    کف ۲۴ ساعت: ${low:,.2f}
+
+    لطفاً یک تحلیل کوتاه، دقیق و کاربردی در قالب ۴ بخش زیر به زبان فارسی بنویس:
+    ۱. روند کلی کوتاه مدت (صعودی/نزولی/رنج)
+    ۲. سطوح کلیدی حمایت و مقاومت
+    ۳. پیشنهاد معامله (خرید/فروش/صبر) با حد سود و حد زیان تقریبی
+    ۴. مدیریت ریسک و توصیه پایانی
+
+    لحن پاسخ حرفه‌ای، جذاب و همراه با ایموجی‌های مناسب باشد.
     """
     try:
-        response = client_gemini.models.generate_content(
-            model='gemini-2.5-flash',
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
             contents=prompt,
         )
         return response.text
     except Exception as e:
-        return f"⚠️ خطای پردازش هوش مصنوعی: {e}"
+        return f"خطا در تحلیل هوش مصنوعی: {str(e)}"
 
 # ==========================================
-# منوی اصلی (Keyboard Markup)
+# 4. TELEGRAM UI KEYBOARDS
 # ==========================================
 def main_menu_keyboard():
+    """کیبورد اینلاین منوی اصلی"""
     keyboard = [
         [
-            InlineKeyboardButton("📊 تحلیل بیت‌کوین (BTC)", callback_data="analyze_BTC"),
-            InlineKeyboardButton("💎 تحلیل اتریوم (ETH)", callback_data="analyze_ETH"),
+            InlineKeyboardButton("📊 تحلیل بیت‌کوین (BTC)", callback_data="analyze_BTCUSDT"),
+            InlineKeyboardButton("💎 تحلیل اتریوم (ETH)", callback_data="analyze_ETHUSDT"),
         ],
         [
-            InlineKeyboardButton("⚡ تحلیل سولانا (SOL)", callback_data="analyze_SOL"),
-            InlineKeyboardButton("👑 اشتراک ویژه VIP ($)", callback_data="vip_info"),
+            InlineKeyboardButton("⚡ تحلیل سولانا (SOL)", callback_data="analyze_SOLUSDT"),
+            InlineKeyboardButton("👑 اشتراک ویژه VIP ($)", callback_data="vip_membership"),
         ],
         [
-            InlineKeyboardButton("🌐 وب‌سایت و پشتیبانی", url="https://instagram.com/amir_botai")
+            InlineKeyboardButton("🌐 وب‌سایت و پشتیبانی", url="https://www.instagram.com/amir_botai")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 # ==========================================
-# هندلرهای ربات (Handlers)
+# 5. HANDLERS
 # ==========================================
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """پاسخ به دستور /start"""
+    """مدیریت دستور /start"""
     welcome_text = (
         "🚀 **به ربات هوشمند تحلیل و سیگنال‌دهی کریپتو خوش آمدید!**\n\n"
         "این ربات با اتصال به موتور هوش مصنوعی Gemini و داده‌های آن‌چین بازار، "
         "دقیق‌ترین تحلیل‌ها را ارائه می‌دهد.\n\n"
-        "لطفاً از منوی زیر گزینه‌ای را انتخاب کنید:"
+        "لطفاً از منوی زیر گزینه مورد نظر را انتخاب کنید:"
     )
-    await update.message.reply_text(
-        welcome_text,
-        reply_markup=main_menu_keyboard(),
-        parse_mode="Markdown"
-    )
+    if update.message:
+        await update.message.reply_text(
+            welcome_text,
+            reply_markup=main_menu_keyboard(),
+            parse_mode="Markdown"
+        )
 
 async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت کلیک روی دکمه‌های شیشه‌ای"""
+    """مدیریت کلیک روی دکمه‌های اینلاین"""
     query = update.callback_query
     await query.answer()
 
@@ -115,34 +125,41 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if data.startswith("analyze_"):
         symbol = data.split("_")[1]
-        
-        # اطلاع‌رسانی به کاربر
-        await query.edit_message_text(
-            f"⏳ در حال استخراج داده‌های {symbol} و تحلیل هوش مصنوعی... لطفاً چند ثانیه صبر کنید.",
-            reply_markup=None
+        coin_name = symbol.replace("USDT", "")
+
+        await query.message.reply_text(f"⏳ در حال دریافت داده‌های {coin_name} و تحلیل با هوش مصنوعی...")
+
+        price, change, high, low = get_crypto_price(symbol)
+
+        if price is None:
+            await query.message.reply_text("❌ خطا در دریافت اطلاعات از صرافی. لطفاً مجدداً تلاش کنید.")
+            return
+
+        ai_analysis = analyze_crypto_with_gemini(coin_name, price, change, high, low)
+
+        full_response = (
+            f"📈 **تحلیل هوشمند ارز {coin_name}**\n\n"
+            f"💵 **قیمت لحظه‌ای:** ${price:,.2f}\n"
+            f"📊 **تغییرات ۲۴h:** {change:.2f}%\n"
+            f"🔝 **سقف ۲۴h:** ${high:,.2f}\n"
+            f"🔻 **کف ۲۴h:** ${low:,.2f}\n\n"
+            f"🤖 **تحلیل هوش مصنوعی Gemini:**\n\n"
+            f"{ai_analysis}"
         )
-        
-        # دریافت قیمت و تحلیل
-        market_info = get_crypto_data(symbol)
-        ai_analysis = analyze_with_gemini(symbol, market_info)
-        
-        full_response = f"{market_info}\n🤖 **تحلیل هوش مصنوعی Gemini:**\n\n{ai_analysis}"
-        
-        # ارسال پاسخ همراه با مجدد قرار دادن منوی اصلی
+
         await query.message.reply_text(
             full_response,
             reply_markup=main_menu_keyboard(),
             parse_mode="Markdown"
         )
 
-    elif data == "vip_info":
+    elif data == "vip_membership":
         vip_text = (
-            "👑 **کانال VIP سیگنال‌دهی هوشمند**\n\n"
-            "ویژگی‌های کانال VIP:\n"
-            "• سیگنال‌های لحظه‌ای خرید و فروش با حد سود و ضرر مشخص\n"
-            "• تحلیل اختصاصی ارزهای آلت‌کوین کم‌ریسک و پرپتانسیل\n"
-            "• پشتیبانی ۲۴/۷ و مشاوره سبدگردانی\n\n"
-            "جهت تهیه اشتراک به آیدی پشتیبانی پیام دهید."
+            "👑 **مزایای کانال VIP سیگنال‌دهی:**\n\n"
+            "▫️ سیگنال‌های نقطه ورود و خروج فیوچرز و اسپات\n"
+            "▫️ مدیریت ریسک و سرمایه اختصاصی\n"
+            "▫️ پشتیبانی ۲۴/۷ و مشاوره سبدگردانی\n\n"
+            "📩 جهت تهیه اشتراک به آیدی پشتیبانی پیام دهید."
         )
         await query.message.reply_text(
             vip_text,
@@ -151,17 +168,18 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         )
 
 # ==========================================
-# نقطه شروع برنامه (Main Function)
+# 6. MAIN EXECUTION
 # ==========================================
 def main():
-    print("🤖 ربات در حال اجرا است...")
+    """راه اندازی و اجرای ربات تلگرام"""
+    print("Bot is starting...")
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-    # ثبت دستورات و رویدادها
+    # ثبت هندلرها
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CallbackQueryHandler(button_click_handler))
 
-    # اجرای ربات
+    print("Bot is listening for messages...")
     app.run_polling()
 
 if __name__ == "__main__":
