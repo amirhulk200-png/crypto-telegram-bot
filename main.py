@@ -1,3 +1,8 @@
+import os
+import asyncio
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import requests
 from google import genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
@@ -20,19 +25,18 @@ def run_health_check_server():
 threading.Thread(target=run_health_check_server, daemon=True).start()
 
 # ==========================================
-# 2. CONFIGURATION & API KEYS
+# 2. CONFIGURATION & ENVIRONMENT VARIABLES
 # ==========================================
-TELEGRAM_BOT_TOKEN = "8156174175:AAGqZ-oY3vGzXp7K6R8y1I90L5U0_m9V_04"  # توکن ربات تلگرام
-GEMINI_API_KEY = "AIzaSy..."  # کلید API جمینای خود را در صورت نیاز جایگزین کنید
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8241260358:AAGwwsRQU1R0qiOd1OR1cb21L5fhYzhXt20")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSy...")
 
-# تنظیم کلاینت گوگل جمینای
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ==========================================
 # 3. HELPER FUNCTIONS (BINANCE & GEMINI AI)
 # ==========================================
 def get_crypto_price(symbol="BTCUSDT"):
-    """دریافت قیمت لحظه‌ای از بایننس"""
+    """دریافت قیمت لحظه‌ای از صرافی بایننس"""
     try:
         url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
         response = requests.get(url, timeout=10)
@@ -168,7 +172,11 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 def main():
     """راه اندازی و اجرای ربات تلگرام"""
     print("Bot is starting...")
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    token = TELEGRAM_BOT_TOKEN
+    if not token:
+        raise ValueError("TELEGRAM_BOT_TOKEN is missing!")
+        
+    app = Application.builder().token(token).build()
 
     # ثبت هندلرها
     app.add_handler(CommandHandler("start", start_command))
