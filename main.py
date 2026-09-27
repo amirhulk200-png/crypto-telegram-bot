@@ -1,10 +1,11 @@
 import os
+import asyncio
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 import google.generativeai as genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # ==========================================
 # 1. HTTP HEALTH CHECK SERVER FOR RENDER
@@ -150,7 +151,7 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         full_response = (
             f"📈 **تحلیل هوشمند ارز {coin_name}**\n\n"
             f"💵 **قیمت لحظه‌ای:** ${price:,.2f}\n"
-            f"📊 **تغییرات ۲۴h:** {change:.2f}%\n\n"
+            f"📊 **تغییرات ۲4h:** {change:.2f}%\n\n"
             f"🤖 **تحلیل هوش مصنوعی Gemini:**\n\n"
             f"{ai_analysis}"
         )
@@ -182,12 +183,12 @@ def main():
     if not TELEGRAM_BOT_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN is missing!")
         
-    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    # استفاده از ساختار استاندارد و پایدار برای جلوگیری از خطای Event Loop
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CallbackQueryHandler(button_click_handler))
 
-    print("Bot is starting polling...")
     application.run_polling()
 
 if __name__ == "__main__":
