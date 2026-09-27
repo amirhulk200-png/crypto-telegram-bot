@@ -81,7 +81,8 @@ def run_health_check_server():
 # 3. CONFIGURATION & GLOBALS
 # ==========================================
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-ADMIN_TON_WALLET = "EQD_________________________________________YOUR_TON_WALLET"
+# آدرس ولت شما به طور کامل درج شد:
+ADMIN_TON_WALLET = "UQBD5CSPchSbU9d50ZvEOgwFzwKc9_snBH4hH4I54USvzhjX"
 
 # ==========================================
 # 4. AI & MARKET ANALYSIS ENGINE
@@ -253,7 +254,6 @@ async def start_bot():
     await application.initialize()
     await application.start()
     
-    # حذف درخواستی که ممکن است از نسخه دیگر باز مانده باشد
     await application.bot.delete_webhook(drop_pending_updates=True)
     await application.updater.start_polling(drop_pending_updates=True)
     
