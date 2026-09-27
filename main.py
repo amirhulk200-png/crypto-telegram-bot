@@ -1,11 +1,10 @@
 import os
-import asyncio
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 import google.generativeai as genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # ==========================================
 # 1. HTTP HEALTH CHECK SERVER FOR RENDER
@@ -29,12 +28,6 @@ threading.Thread(target=run_health_check_server, daemon=True).start()
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# چاپ وضعیت کلید برای عیب‌یابی در لاگ رندر
-if GEMINI_API_KEY:
-    print(f"-> GEMINI_API_KEY is loaded successfully (Starts with: {GEMINI_API_KEY[:5]}...)")
-else:
-    print("-> ERROR: GEMINI_API_KEY is missing or empty in environment variables!")
-
 genai.configure(api_key=GEMINI_API_KEY)
 
 # ==========================================
@@ -48,7 +41,6 @@ def get_crypto_price(symbol="BTC"):
         "SOLUSDT": "solana"
     }
     
-    # اولویت اول: CoinGecko API
     cg_id = map_cg.get(symbol, "bitcoin")
     try:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}&vs_currencies=usd&include_24hr_change=true"
@@ -61,7 +53,6 @@ def get_crypto_price(symbol="BTC"):
     except Exception as e:
         print(f"CoinGecko error: {e}")
 
-    # اولویت دوم: MEXC Exchange API
     try:
         url = f"https://api.mexc.com/api/v3/ticker/24hr?symbol={symbol}"
         response = requests.get(url, timeout=5)
@@ -98,7 +89,6 @@ def analyze_crypto_with_gemini(coin_name, price, change, high, low):
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        print(f"Gemini API Exception: {e}")
         return f"خطا در تحلیل هوش مصنوعی: {str(e)}"
 
 # ==========================================
@@ -126,7 +116,7 @@ def main_menu_keyboard():
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
         "🚀 **به ربات هوشمند تحلیل و سیگنال‌دهی کریپتو خوش آمدید!**\n\n"
-        "این ربات با اتصال به موتور هوش مصنوعی Gemini و داده‌های آن‌چین بازار، "
+        "این ربات با اتصال به موتور هوش مصنوعی Gemini و داده‌های بازار، "
         "دقیق‌ترین تحلیل‌ها را ارائه می‌دهد.\n\n"
         "لطفاً از منوی زیر گزینه مورد نظر را انتخاب کنید:"
     )
@@ -189,16 +179,16 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 # 6. MAIN EXECUTION
 # ==========================================
 def main():
-    token = TELEBOT_TOKEN if 'TELEBOT_TOKEN' in locals() else TELEGRAM_BOT_TOKEN
-    if not token:
+    if not TELEGRAM_BOT_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN is missing!")
         
-    app = Application.builder().token(token).build()
+    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CallbackQueryHandler(button_click_handler))
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CallbackQueryHandler(button_click_handler))
 
-    app.run_polling()
+    print("Bot is starting polling...")
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
