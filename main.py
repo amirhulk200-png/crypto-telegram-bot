@@ -29,8 +29,6 @@ threading.Thread(target=run_health_check_server, daemon=True).start()
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-client = genai.Client(api_key=GEMINI_API_KEY)
-
 # ==========================================
 # 3. HELPER FUNCTIONS (MULTI-API PRICE FETCH)
 # ==========================================
@@ -55,7 +53,7 @@ def get_crypto_price(symbol="BTC"):
     except Exception as e:
         print(f"CoinGecko error: {e}")
 
-    # اولویت دوم (پشتیبان): MEXC Exchange API
+    # اولویت دوم: MEXC Exchange API
     try:
         url = f"https://api.mexc.com/api/v3/ticker/24hr?symbol={symbol}"
         response = requests.get(url, timeout=5)
@@ -88,6 +86,10 @@ def analyze_crypto_with_gemini(coin_name, price, change, high, low):
     لحن پاسخ حرفه‌ای، جذاب و همراه با ایموجی‌های مناسب باشد.
     """
     try:
+        # مقداردهی صریح API Key برای جلوگیری از خطای ۴۰۱
+        api_key = os.environ.get("GEMINI_API_KEY")
+        client = genai.Client(api_key=api_key)
+        
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
