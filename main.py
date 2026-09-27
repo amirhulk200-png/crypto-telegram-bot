@@ -19,14 +19,11 @@ def run_health_check_server():
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
     server.serve_forever()
 
-threading.Thread(target=run_health_check_server, daemon=True).start()
-
 # ==========================================
 # 2. CONFIGURATION & SECURE REST API KEYS
 # ==========================================
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-# کلید API خود را مستقیماً اینجا قرار دهید تا خطای 401 برای همیشه حذف شود
-GEMINI_API_KEY = "YOUR_API_KEY_HERE"
+GEMINI_API_KEY = "AQ.Ab8RN6IE6U0sNX-fpZnvokfBtax96g2hAk4fy6cGqxlS_PcorA"
 
 def analyze_crypto_with_gemini(coin_name, price, change, high, low):
     """ارسال درخواست مستقیم REST به مدل پیشرفته Gemini برای دور زدن خطای احراز هویت SDK"""
@@ -191,12 +188,16 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 def main():
     if not TELEGRAM_BOT_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN is missing!")
+
+    # راه‌اندازی سرور سلامت در ترد پس‌زمینه
+    threading.Thread(target=run_health_check_server, daemon=True).start()
         
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CallbackQueryHandler(button_click_handler))
 
+    # اجرای ربات روی ترد اصلی بدون تداخل حلقه رویداد
     application.run_polling()
 
 if __name__ == "__main__":
