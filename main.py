@@ -1,4 +1,6 @@
-threading
+import os
+import asyncio
+import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 from google import genai
@@ -19,30 +21,35 @@ def run_health_check_server():
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
     server.serve_forever()
 
-# اجرای سرور وب در پس‌زمینه برای زنده نگه داشتن Render Web Service
 threading.Thread(target=run_health_check_server, daemon=True).start()
 
 # ==========================================
 # 2. CONFIGURATION & ENVIRONMENT VARIABLES
 # ==========================================
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8241260358:AAGwwsRQU1R0qiOd1OR1cb21L5fhYzhXt20")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSy...")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ==========================================
-# 3. HELPER FUNCTIONS (BINANCE & GEMINI AI)
+# 3. HELPER FUNCTIONS (COINCAP & GEMINI AI)
 # ==========================================
-def get_crypto_price(symbol="BTCUSDT"):
-    """دریافت قیمت لحظه‌ای از صرافی بایننس"""
+def get_crypto_price(symbol="BTC"):
+    """دریافت قیمت لحظه‌ای از API بدون تحریم CoinCap"""
+    map_symbols = {
+        "BTCUSDT": "bitcoin",
+        "ETHUSDT": "ethereum",
+        "SOLUSDT": "solana"
+    }
+    asset_id = map_symbols.get(symbol, "bitcoin")
     try:
-        url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
+        url = f"https://api.coincap.io/v2/assets/{asset_id}"
         response = requests.get(url, timeout=10)
-        data = response.json()
-        price = float(data['lastPrice'])
-        change = float(data['priceChangePercent'])
-        high = float(data['highPrice'])
-        low = float(data['lowPrice'])
+        data = response.json()['data']
+        price = float(data['priceUsd'])
+        change = float(data['changePercent24Hr'])
+        high = price * 1.02  # تخمین سقف تقریبی
+        low = price * 0.98   # تخمین کف تقریبی
         return price, change, high, low
     except Exception as e:
         print(f"Error fetching price for {symbol}: {e}")
@@ -51,12 +58,10 @@ def get_crypto_price(symbol="BTCUSDT"):
 def analyze_crypto_with_gemini(coin_name, price, change, high, low):
     """تحلیل هوشمند بازار با موتور Gemini AI"""
     prompt = f"""
-    تست تحلیلگری حرفه‌ای کریپتوکارنسی:
+    تو یک تحلیلگر حرفه‌ای کریپتوکارنسی هستی.
     ارز: {coin_name}
     قیمت لحظه‌ای: ${price:,.2f}
     تغییرات ۲۴ ساعت گذشته: {change:.2f}%
-    سقف ۲۴ ساعت: ${high:,.2f}
-    کف ۲۴ ساعت: ${low:,.2f}
 
     لطفاً یک تحلیل کوتاه، دقیق و کاربردی در قالب ۴ بخش زیر به زبان فارسی بنویس:
     ۱. روند کلی کوتاه مدت (صعودی/نزولی/رنج)
@@ -79,7 +84,6 @@ def analyze_crypto_with_gemini(coin_name, price, change, high, low):
 # 4. TELEGRAM UI KEYBOARDS
 # ==========================================
 def main_menu_keyboard():
-    """کیبورد اینلاین منوی اصلی"""
     keyboard = [
         [
             InlineKeyboardButton("📊 تحلیل بیت‌کوین (BTC)", callback_data="analyze_BTCUSDT"),
@@ -99,7 +103,6 @@ def main_menu_keyboard():
 # 5. HANDLERS
 # ==========================================
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت دستور /start"""
     welcome_text = (
         "🚀 **به ربات هوشمند تحلیل و سیگنال‌دهی کریپتو خوش آمدید!**\n\n"
         "این ربات با اتصال به موتور هوش مصنوعی Gemini و داده‌های آن‌چین بازار، "
@@ -114,7 +117,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت کلیک روی دکمه‌های اینلاین"""
     query = update.callback_query
     await query.answer()
 
@@ -137,9 +139,7 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         full_response = (
             f"📈 **تحلیل هوشمند ارز {coin_name}**\n\n"
             f"💵 **قیمت لحظه‌ای:** ${price:,.2f}\n"
-            f"📊 **تغییرات ۲۴h:** {change:.2f}%\n"
-            f"🔝 **سقف ۲۴h:** ${high:,.2f}\n"
-            f"🔻 **کف ۲۴h:** ${low:,.2f}\n\n"
+            f"📊 **تغییرات ۲۴h:** {change:.2f}%\n\n"
             f"🤖 **تحلیل هوش مصنوعی Gemini:**\n\n"
             f"{ai_analysis}"
         )
@@ -168,19 +168,16 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 # 6. MAIN EXECUTION
 # ==========================================
 def main():
-    """راه اندازی و اجرای ربات تلگرام"""
-    print("Bot is starting...")
     token = TELEGRAM_BOT_TOKEN
     if not token:
         raise ValueError("TELEGRAM_BOT_TOKEN is missing!")
         
     app = Application.builder().token(token).build()
 
-    # ثبت هندلرها
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CallbackQueryHandler(button_click_handler))
 
-    print("Bot is listening for messages...")
     app.run_polling()
 
 if __name__ == "__main__":
+    main()
