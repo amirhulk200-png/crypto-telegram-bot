@@ -3,7 +3,7 @@ import asyncio
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
-from google import genai
+import google.generativeai as genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
@@ -28,6 +28,9 @@ threading.Thread(target=run_health_check_server, daemon=True).start()
 # ==========================================
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+
+# تنظیم کلید API برای گوگل
+genai.configure(api_key=GEMINI_API_KEY)
 
 # ==========================================
 # 3. HELPER FUNCTIONS (MULTI-API PRICE FETCH)
@@ -86,14 +89,8 @@ def analyze_crypto_with_gemini(coin_name, price, change, high, low):
     لحن پاسخ حرفه‌ای، جذاب و همراه با ایموجی‌های مناسب باشد.
     """
     try:
-        # مقداردهی صریح API Key برای جلوگیری از خطای ۴۰۱
-        api_key = os.environ.get("GEMINI_API_KEY")
-        client = genai.Client(api_key=api_key)
-        
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-        )
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(prompt)
         return response.text
     except Exception as e:
         return f"خطا در تحلیل هوش مصنوعی: {str(e)}"
