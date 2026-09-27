@@ -32,28 +32,44 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ==========================================
-# 3. HELPER FUNCTIONS (COINCAP & GEMINI AI)
+# 3. HELPER FUNCTIONS (MULTI-API PRICE FETCH)
 # ==========================================
 def get_crypto_price(symbol="BTC"):
-    """دریافت قیمت لحظه‌ای از API بدون تحریم CoinCap"""
-    map_symbols = {
+    """دریافت قیمت لحظه‌ای با ۲ لایه پشتیبان (CoinGecko + MEXC)"""
+    map_cg = {
         "BTCUSDT": "bitcoin",
         "ETHUSDT": "ethereum",
         "SOLUSDT": "solana"
     }
-    asset_id = map_symbols.get(symbol, "bitcoin")
+    
+    # اولویت اول: CoinGecko API
+    cg_id = map_cg.get(symbol, "bitcoin")
     try:
-        url = f"https://api.coincap.io/v2/assets/{asset_id}"
-        response = requests.get(url, timeout=10)
-        data = response.json()['data']
-        price = float(data['priceUsd'])
-        change = float(data['changePercent24Hr'])
-        high = price * 1.02  # تخمین سقف تقریبی
-        low = price * 0.98   # تخمین کف تقریبی
-        return price, change, high, low
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}&vs_currencies=usd&include_24hr_change=true"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            data = response.json()[cg_id]
+            price = float(data['usd'])
+            change = float(data.get('usd_24h_change', 0.0))
+            return price, change, price * 1.02, price * 0.98
     except Exception as e:
-        print(f"Error fetching price for {symbol}: {e}")
-        return None, None, None, None
+        print(f"CoinGecko error: {e}")
+
+    # اولویت دوم (پشتیبان): MEXC Exchange API
+    try:
+        url = f"https://api.mexc.com/api/v3/ticker/24hr?symbol={symbol}"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            price = float(data['lastPrice'])
+            change = float(data['priceChangePercent'])
+            high = float(data['highPrice'])
+            low = float(data['lowPrice'])
+            return price, change, high, low
+    except Exception as e:
+        print(f"MEXC error: {e}")
+
+    return None, None, None, None
 
 def analyze_crypto_with_gemini(coin_name, price, change, high, low):
     """تحلیل هوشمند بازار با موتور Gemini AI"""
