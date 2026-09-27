@@ -81,7 +81,6 @@ def run_health_check_server():
 # 3. CONFIGURATION & GLOBALS
 # ==========================================
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-# آدرس ولت TON یا USDT-TON خود را اینجا وارد کنید
 ADMIN_TON_WALLET = "EQD_________________________________________YOUR_TON_WALLET"
 
 # ==========================================
@@ -118,9 +117,7 @@ def get_crypto_price(symbol="BTC"):
 # 5. AUTOMATED TON BLOCKCHAIN CHECKER
 # ==========================================
 def verify_ton_transaction(user_id, amount_usd=1.0):
-    """بررسی هوشمند و اتوماتیک تراکنش روی شبکه TON با کد شناسایی کاربر"""
     try:
-        # استعلام مستقیم آخرین تراکنش‌های ولت مدیریت از API رایگان TON
         url = f"https://toncenter.com/api/v2/getTransactions?address={ADMIN_TON_WALLET}&limit=10"
         res = requests.get(url, timeout=8)
         if res.status_code == 200:
@@ -128,11 +125,10 @@ def verify_ton_transaction(user_id, amount_usd=1.0):
             for tx in txs:
                 in_msg = tx.get("in_msg", {})
                 comment = in_msg.get("message", "")
-                # بررسی اینکه آیا شناسه کاربر در کامنت تراکنش درج شده است یا خیر
                 if str(user_id) in comment:
                     value_nano = int(in_msg.get("value", 0))
                     value_ton = value_nano / 1e9
-                    if value_ton > 0.1:  # حداقل مقدار معادل ۱ دلار
+                    if value_ton > 0.1:
                         set_user_vip(user_id, days=30)
                         return True
     except Exception as e:
@@ -143,7 +139,6 @@ def verify_ton_transaction(user_id, amount_usd=1.0):
 # 6. KEYBOARDS & UI
 # ==========================================
 def main_menu_keyboard(bot_username):
-    ref_link = f"https://t.me/{bot_username}?start="
     keyboard = [
         [
             InlineKeyboardButton("📊 تحلیل بیت‌کوین (BTC)", callback_data="analyze_BTCUSDT"),
@@ -194,7 +189,6 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         user = get_user(user_id)
         is_vip = user[2] if user else 0
         
-        # کنترل دسترسی بدون محدودیت برای کاربران VIP
         await query.message.reply_text(f"⏳ در حال پردازش اطلاعات {coin_name}...")
         price, change = get_crypto_price(symbol)
         ai_res = analyze_crypto_with_ai(coin_name, price, change)
@@ -245,7 +239,7 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.message.reply_text("منوی اصلی:", reply_markup=main_menu_keyboard(bot_info.username))
 
 # ==========================================
-# 8. ASYNC BOT LAUNCHER
+# 8. ASYNC BOT LAUNCHER WITH CONFLICT SAFETY
 # ==========================================
 async def start_bot():
     if not TELEGRAM_BOT_TOKEN:
@@ -258,7 +252,10 @@ async def start_bot():
 
     await application.initialize()
     await application.start()
-    await application.updater.start_polling()
+    
+    # حذف درخواستی که ممکن است از نسخه دیگر باز مانده باشد
+    await application.bot.delete_webhook(drop_pending_updates=True)
+    await application.updater.start_polling(drop_pending_updates=True)
     
     await asyncio.Event().wait()
 
