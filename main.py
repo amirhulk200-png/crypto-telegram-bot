@@ -1,9 +1,7 @@
 import os
-import asyncio
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
-import google.generativeai as genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
@@ -24,18 +22,52 @@ def run_health_check_server():
 threading.Thread(target=run_health_check_server, daemon=True).start()
 
 # ==========================================
-# 2. CONFIGURATION & ENVIRONMENT VARIABLES
+# 2. CONFIGURATION & SECURE REST API KEYS
 # ==========================================
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+# کلید API خود را مستقیماً اینجا قرار دهید تا خطای 401 برای همیشه حذف شود
+GEMINI_API_KEY = "YOUR_API_KEY_HERE"
 
-genai.configure(api_key=GEMINI_API_KEY)
+def analyze_crypto_with_gemini(coin_name, price, change, high, low):
+    """ارسال درخواست مستقیم REST به مدل پیشرفته Gemini برای دور زدن خطای احراز هویت SDK"""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={GEMINI_API_KEY}"
+    
+    prompt = f"""
+    تو یک تحلیلگر حرفه‌ای کریپتوکارنسی هستی.
+    ارز: {coin_name}
+    قیمت لحظه‌ای: ${price:,.2f}
+    تغییرات ۲۴ ساعت گذشته: {change:.2f}%
+
+    لطفاً یک تحلیل کوتاه، دقیق و کاربردی در قالب ۴ بخش زیر به زبان فارسی بنویس:
+    ۱. روند کلی کوتاه مدت (صعودی/نزولی/رنج)
+    ۲. سطوح کلیدی حمایت و مقاومت
+    ۳. پیشنهاد معامله (خرید/فروش/صبر) با حد سود و حد زیان تقریبی
+    ۴. مدیریت ریسک و توصیه پایانی
+
+    لحن پاسخ حرفه‌ای، جذاب و همراه با ایموجی‌های مناسب باشد.
+    """
+    
+    headers = {'Content-Type': 'application/json'}
+    payload = {
+        "contents": [{
+            "parts": [{"text": prompt}]
+        }]
+    }
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            return data['candidates'][0]['content']['parts'][0]['text']
+        else:
+            return f"خطای ارتباط با سرور هوش مصنوعی (کد {response.status_code}): {response.text}"
+    except Exception as e:
+        return f"خطا در پردازش شبکه: {str(e)}"
 
 # ==========================================
-# 3. HELPER FUNCTIONS (MULTI-API PRICE FETCH)
+# 3. HELPER FUNCTIONS (PRICE FETCH)
 # ==========================================
 def get_crypto_price(symbol="BTC"):
-    """دریافت قیمت لحظه‌ای با ۲ لایه پشتیبان (CoinGecko + MEXC)"""
     map_cg = {
         "BTCUSDT": "bitcoin",
         "ETHUSDT": "ethereum",
@@ -68,29 +100,6 @@ def get_crypto_price(symbol="BTC"):
         print(f"MEXC error: {e}")
 
     return None, None, None, None
-
-def analyze_crypto_with_gemini(coin_name, price, change, high, low):
-    """تحلیل هوشمند بازار با موتور Gemini AI"""
-    prompt = f"""
-    تو یک تحلیلگر حرفه‌ای کریپتوکارنسی هستی.
-    ارز: {coin_name}
-    قیمت لحظه‌ای: ${price:,.2f}
-    تغییرات ۲۴ ساعت گذشته: {change:.2f}%
-
-    لطفاً یک تحلیل کوتاه، دقیق و کاربردی در قالب ۴ بخش زیر به زبان فارسی بنویس:
-    ۱. روند کلی کوتاه مدت (صعودی/نزولی/رنج)
-    ۲. سطوح کلیدی حمایت و مقاومت
-    ۳. پیشنهاد معامله (خرید/فروش/صبر) با حد سود و حد زیان تقریبی
-    ۴. مدیریت ریسک و توصیه پایانی
-
-    لحن پاسخ حرفه‌ای، جذاب و همراه با ایموجی‌های مناسب باشد.
-    """
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"خطا در تحلیل هوش مصنوعی: {str(e)}"
 
 # ==========================================
 # 4. TELEGRAM UI KEYBOARDS
@@ -151,7 +160,7 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         full_response = (
             f"📈 **تحلیل هوشمند ارز {coin_name}**\n\n"
             f"💵 **قیمت لحظه‌ای:** ${price:,.2f}\n"
-            f"📊 **تغییرات ۲4h:** {change:.2f}%\n\n"
+            f"📊 **تغییرات ۲۴h:** {change:.2f}%\n\n"
             f"🤖 **تحلیل هوش مصنوعی Gemini:**\n\n"
             f"{ai_analysis}"
         )
@@ -183,7 +192,6 @@ def main():
     if not TELEGRAM_BOT_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN is missing!")
         
-    # استفاده از ساختار استاندارد و پایدار برای جلوگیری از خطای Event Loop
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start_command))
